@@ -40,8 +40,9 @@ def handle_company(ack, command, respond):
 
 def _analyze(company_name: str, response_url: str):
     try:
+        ct_context  = notion_service.fetch_channeltalk_context()
         search_data = serper_service.fetch_all(company_name)
-        result      = llm_service.analyze(company_name, search_data)
+        result      = llm_service.analyze(company_name, search_data, ct_context)
         notion_url  = notion_service.save(company_name, result)
 
         blocks = _build_blocks(company_name, result, notion_url)

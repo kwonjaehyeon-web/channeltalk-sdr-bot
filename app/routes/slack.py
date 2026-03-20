@@ -63,8 +63,9 @@ def _run_and_respond(company_name: str, response_url: str):
     try:
         logger.info(f"[분석 시작] {company_name}")
 
+        ct_context  = notion_service.fetch_channeltalk_context()
         search_data = serper_service.fetch_all(company_name)
-        result      = llm_service.analyze(company_name, search_data)
+        result      = llm_service.analyze(company_name, search_data, ct_context)
         notion_url  = notion_service.save(company_name, result)
 
         blocks = _build_blocks(company_name, result, notion_url)
