@@ -1,25 +1,90 @@
 """
-Notion API — 분석 결과를 Notion DB에 저장
+Notion API — 분석 결과 저장 + 채널톡 컨텍스트 페이지 읽기
 """
 
 import os
+import time
 from datetime import datetime
 from loguru import logger
 import httpx
 
 NOTION_API_URL = "https://api.notion.com/v1"
 NOTION_VERSION = "2022-06-28"
+CONTEXT_CACHE_TTL = 3600  # 1시간
 
 
 class NotionService:
 
     def __init__(self):
-        self.token   = os.environ.get("NOTION_TOKEN", "")
-        self.db_id   = os.environ.get("NOTION_DATABASE_ID", "")
+        self.token      = os.environ.get("NOTION_TOKEN", "")
+        self.db_id      = os.environ.get("NOTION_DATABASE_ID", "")
+        self.context_id = os.environ.get("NOTION_CONTEXT_PAGE_ID", "")
+        self._context_cache: str = ""
+        self._context_cached_at: float = 0
+
         if not self.token:
-            logger.warning("NOTION_TOKEN 없음 — Notion 저장 비활성화")
-        if not self.db_id:
-            logger.warning("NOTION_DATABASE_ID 없음 — Notion 저장 비활성화")
+            logger.warning("NOTION_TOKEN 없음 — Notion 비활성화")
+        if not self.context_id:
+            logger.warning("NOTION_CONTEXT_PAGE_ID 없음 — 채널톡 컨텍스트 미사용")
+
+    # ── 채널톡 컨텍스트 읽기 ────────────────────────────────────────────────────
+
+    def fetch_channeltalk_context(self) -> str:
+        """채널톡 SDR 컨텍스트 페이지를 읽어 텍스트로 반환 (1시간 캐시)"""
+        if not self.token or not self.context_id:
+            return ""
+
+        now = time.time()
+        if self._context_cache and (now - self._context_cached_at) < CONTEXT_CACHE_TTL:
+            logger.debug("[Notion] 컨텍스트 캐시 사용")
+            return self._context_cache
+
+        try:
+            text = self._read_page_blocks(self.context_id)
+            self._context_cache = text
+            self._context_cached_at = now
+            logger.info("[Notion] 채널톡 컨텍스트 갱신 완료")
+            return text
+        except Exception as e:
+            logger.error(f"[Notion] 컨텍스트 읽기 실패: {e}")
+            return self._context_cache  # 실패 시 이전 캐시 사용
+
+    def _read_page_blocks(self, page_id: str) -> str:
+        """Notion 페이지 블록을 plain text로 변환"""
+        resp = httpx.get(
+            f"{NOTION_API_URL}/blocks/{page_id}/children",
+            headers={
+                "Authorization": f"Bearer {self.token}",
+                "Notion-Version": NOTION_VERSION,
+            },
+            params={"page_size": 100},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        blocks = resp.json().get("results", [])
+
+        lines = []
+        for block in blocks:
+            text = self._block_to_text(block)
+            if text:
+                lines.append(text)
+        return "\n".join(lines)
+
+    def _block_to_text(self, block: dict) -> str:
+        btype = block.get("type", "")
+        content = block.get(btype, {})
+        rich = content.get("rich_text", [])
+        text = "".join(r.get("plain_text", "") for r in rich)
+
+        if btype == "heading_1":
+            return f"# {text}"
+        if btype == "heading_2":
+            return f"## {text}"
+        if btype == "heading_3":
+            return f"### {text}"
+        if btype in ("paragraph", "bulleted_list_item", "numbered_list_item"):
+            return text
+        return ""
 
     def save(self, company_name: str, result: dict) -> str | None:
         """

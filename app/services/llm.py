@@ -16,12 +16,13 @@ openai_client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY", ""))
 
 class LLMService:
 
-    def analyze(self, company_name: str, search_data: dict) -> dict:
+    def analyze(self, company_name: str, search_data: dict, channeltalk_context: str = "") -> dict:
         """
-        search_data: SerperService.fetch_all() 결과 (news, jobs, overview)
+        search_data: SerperService.fetch_all() 결과
+        channeltalk_context: Notion 컨텍스트 페이지 텍스트
         반환: ICP + Qualify 분석 결과 dict
         """
-        prompt = self._build_prompt(company_name, search_data)
+        prompt = self._build_prompt(company_name, search_data, channeltalk_context)
 
         try:
             raw = self._call_openai(prompt)
@@ -34,18 +35,29 @@ class LLMService:
 
     # ── 프롬프트 ────────────────────────────────────────────────────────────────
 
-    def _build_prompt(self, company_name: str, search_data: dict) -> str:
+    def _build_prompt(self, company_name: str, search_data: dict, channeltalk_context: str = "") -> str:
+        overview_text = self._format_results(search_data.get("overview", []))
+        scale_text    = self._format_results(search_data.get("scale", []))
         news_text     = self._format_results(search_data.get("news", []))
         jobs_text     = self._format_results(search_data.get("jobs", []))
-        overview_text = self._format_results(search_data.get("overview", []))
+
+        context_section = ""
+        if channeltalk_context:
+            context_section = f"""
+## 채널톡 제품 컨텍스트 (반드시 이 내용을 기반으로 솔루션 매칭할 것)
+{channeltalk_context}
+
+---
+"""
 
         return f"""당신은 채널톡(ChannelTalk) B2B SDR 전문가입니다.
-아래 검색 데이터를 분석해 {company_name}에 대한 SDR 분석 리포트를 작성하세요.
-
-채널톡 주요 기능: 챗봇(CS 자동화), CRM 마케팅(고객 메시지/캠페인), 팀 채팅(내부 협업)
-
-## 기업 개요 검색 결과
+아래 채널톡 컨텍스트와 기업 검색 데이터를 분석해 {company_name}에 대한 SDR 분석 리포트를 작성하세요.
+{context_section}
+## 기업 개요
 {overview_text}
+
+## 규모 / 투자 정보
+{scale_text}
 
 ## 최신 뉴스
 {news_text}
