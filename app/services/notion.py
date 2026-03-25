@@ -16,16 +16,21 @@ CONTEXT_CACHE_TTL = 3600  # 1시간
 class NotionService:
 
     def __init__(self):
-        self.token      = os.environ.get("NOTION_TOKEN", "")
-        self.db_id      = os.environ.get("NOTION_DATABASE_ID", "")
-        self.context_id = os.environ.get("NOTION_CONTEXT_PAGE_ID", "")
+        self.token        = os.environ.get("NOTION_TOKEN", "")
+        self.db_id        = os.environ.get("NOTION_DATABASE_ID", "")
+        self.context_id   = os.environ.get("NOTION_CONTEXT_PAGE_ID", "")
+        self.guidelines_id = os.environ.get("NOTION_GUIDELINES_PAGE_ID", "")
         self._context_cache: str = ""
         self._context_cached_at: float = 0
+        self._guidelines_cache: str = ""
+        self._guidelines_cached_at: float = 0
 
         if not self.token:
             logger.warning("NOTION_TOKEN 없음 — Notion 비활성화")
         if not self.context_id:
             logger.warning("NOTION_CONTEXT_PAGE_ID 없음 — 채널톡 컨텍스트 미사용")
+        if not self.guidelines_id:
+            logger.warning("NOTION_GUIDELINES_PAGE_ID 없음 — 분석 가이드라인 미사용 (코드 기본값 사용)")
 
     # ── 채널톡 컨텍스트 읽기 ────────────────────────────────────────────────────
 
@@ -85,6 +90,25 @@ class NotionService:
         if btype in ("paragraph", "bulleted_list_item", "numbered_list_item"):
             return text
         return ""
+
+    def fetch_analysis_guidelines(self) -> str:
+        """SDR 분석 가이드라인 페이지 읽기 (1시간 캐시). 없으면 빈 문자열 반환."""
+        if not self.token or not self.guidelines_id:
+            return ""
+
+        now = time.time()
+        if self._guidelines_cache and (now - self._guidelines_cached_at) < CONTEXT_CACHE_TTL:
+            return self._guidelines_cache
+
+        try:
+            text = self._read_page_blocks(self.guidelines_id)
+            self._guidelines_cache = text
+            self._guidelines_cached_at = now
+            logger.info("[Notion] 분석 가이드라인 갱신 완료")
+            return text
+        except Exception as e:
+            logger.error(f"[Notion] 가이드라인 읽기 실패: {e}")
+            return self._guidelines_cache
 
     def save(self, company_name: str, result: dict) -> str | None:
         """

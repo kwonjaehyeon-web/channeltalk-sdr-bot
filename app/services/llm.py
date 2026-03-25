@@ -16,13 +16,13 @@ openai_client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY", ""))
 
 class LLMService:
 
-    def analyze(self, company_name: str, search_data: dict, channeltalk_context: str = "") -> dict:
+    def analyze(self, company_name: str, search_data: dict, channeltalk_context: str = "", analysis_guidelines: str = "") -> dict:
         """
         search_data: SerperService.fetch_all() 결과
         channeltalk_context: Notion 컨텍스트 페이지 텍스트
         반환: ICP + Qualify 분석 결과 dict
         """
-        prompt = self._build_prompt(company_name, search_data, channeltalk_context)
+        prompt = self._build_prompt(company_name, search_data, channeltalk_context, analysis_guidelines)
 
         try:
             raw = self._call_openai(prompt)
@@ -35,11 +35,12 @@ class LLMService:
 
     # ── 프롬프트 ────────────────────────────────────────────────────────────────
 
-    def _build_prompt(self, company_name: str, search_data: dict, channeltalk_context: str = "") -> str:
-        overview_text = self._format_results(search_data.get("overview", []))
-        scale_text    = self._format_results(search_data.get("scale", []))
-        news_text     = self._format_results(search_data.get("news", []))
-        jobs_text     = self._format_results(search_data.get("jobs", []))
+    def _build_prompt(self, company_name: str, search_data: dict, channeltalk_context: str = "", analysis_guidelines: str = "") -> str:
+        overview_text  = self._format_results(search_data.get("overview", []))
+        scale_text     = self._format_results(search_data.get("scale", []))
+        news_text      = self._format_results(search_data.get("news", []))
+        jobs_text      = self._format_results(search_data.get("jobs", []))
+        linkedin_text  = self._format_results(search_data.get("linkedin", []))
 
         context_section = ""
         if channeltalk_context:
@@ -50,23 +51,16 @@ class LLMService:
 ---
 """
 
-        return f"""당신은 채널톡(ChannelTalk) B2B SDR 전문가입니다.
-아래 채널톡 컨텍스트와 기업 검색 데이터를 분석해 {company_name}에 대한 SDR 분석 리포트를 작성하세요.
-{context_section}
-## 기업 개요
-{overview_text}
+        guidelines_section = ""
+        if analysis_guidelines:
+            guidelines_section = f"""
+## SDR 분석 가이드라인 (반드시 이 판단 기준을 따를 것)
+{analysis_guidelines}
 
-## 규모 / 투자 정보
-{scale_text}
+---
+"""
 
-## 최신 뉴스
-{news_text}
-
-## 채용 공고
-{jobs_text}
-
-## 분석 지침
-
+        default_guidelines = "" if analysis_guidelines else """
 **ICP 분석**
 - 산업군: 커머스/SaaS/오프라인 서비스/핀테크/헬스케어 등 구체적으로 분류
 - 규모/매출: 검색 결과에서 투자 유치, 임직원 수, 매출 정보 추출. 없으면 "(추정)" 표기
@@ -88,6 +82,29 @@ class LLMService:
 - SaaS: CS 리드, Growth 팀장
 - 오프라인 서비스: 운영팀장, 대표이사(소규모)
 - 산업/규모에 맞게 추론
+- 링크드인 검색 결과에 실제 인물이 있으면 반드시 언급할 것
+"""
+
+        return f"""당신은 채널톡(ChannelTalk) B2B SDR 전문가입니다.
+아래 채널톡 컨텍스트와 기업 검색 데이터를 분석해 {company_name}에 대한 SDR 분석 리포트를 작성하세요.
+{context_section}{guidelines_section}
+## 기업 개요
+{overview_text}
+
+## 규모 / 투자 정보
+{scale_text}
+
+## 최신 뉴스
+{news_text}
+
+## 채용 공고
+{jobs_text}
+
+## 링크드인 — 의사결정자 후보
+{linkedin_text}
+
+## 분석 지침
+{default_guidelines}
 
 ## 출력 형식 (JSON만, 다른 텍스트 없이)
 {{
